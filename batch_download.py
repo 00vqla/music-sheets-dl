@@ -30,9 +30,26 @@ def sanitize_folder_name(name):
     # Remove or replace characters not allowed in folder names
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip()
 
-def download_file(file_id, dest_folder):
+def sanitize_filename(filename):
+    # Remove or replace characters not allowed in filenames
+    # Replace invalid characters with underscores
+    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    # Remove leading/trailing spaces and dots
+    filename = filename.strip(' .')
+    # Limit length to avoid filesystem issues
+    if len(filename) > 200:
+        filename = filename[:200]
+    return filename
+
+def download_file(file_id, dest_folder, title):
     api_url = f"https://api.pillowcase.su/api/download/{file_id}.mp3"
-    local_filename = os.path.join(dest_folder, f"{file_id}.mp3")
+    # Use title as filename, fallback to file_id if title is empty
+    if title and title.strip():
+        safe_title = sanitize_filename(title)
+        local_filename = os.path.join(dest_folder, f"{safe_title}.mp3")
+    else:
+        local_filename = os.path.join(dest_folder, f"{file_id}.mp3")
+    
     try:
         with requests.get(api_url, stream=True) as r:
             r.raise_for_status()
@@ -258,7 +275,7 @@ def main():
         quality = row[quality_col] if quality_col else None
         title, artist, composer = process_title_and_metadata(name, available_length, quality)
         if file_id:
-            mp3_path = download_file(file_id, era_folder)
+            mp3_path = download_file(file_id, era_folder, title)
             if mp3_path and title:
                 embed_metadata(mp3_path, title, artist, composer)
         else:
