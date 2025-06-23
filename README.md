@@ -9,9 +9,6 @@ A Python script that downloads music files from Google Sheets trackers, specific
   - Title formatting (removes grailed emojis, brackets, handles features)
   - Artist and composer extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
-- **Smart File Organization**: Creates era-specific folders
-- **Google Sheets Integration**: Works directly with Google Sheets URLs
-- **Robust Error Handling**: Graceful handling of missing files and invalid URLs
 
 ## Installation
 
