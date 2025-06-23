@@ -6,12 +6,9 @@ A Python script that downloads music files from Google Sheets trackers, specific
 
 - **Dynamic Era Selection**: Choose from available eras in the spreadsheet
 - **Automatic Metadata Embedding**: 
-  - Title formatting (removes emojis, brackets, handles features)
+  - Title formatting (removes grailed emojis, brackets, handles features)
   - Artist and composer extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
-- **Smart File Organization**: Creates era-specific folders
-- **Google Sheets Integration**: Works directly with Google Sheets URLs
-- **Robust Error Handling**: Graceful handling of missing files and invalid URLs
 
 ## Installation
 
@@ -87,7 +84,7 @@ batch-download-spreadsheet/
 
 ## Supported Spreadsheet Format
 
-The script expects a CSV/spreadsheet with these columns:
+The program expects a CSV/spreadsheet with these columns:
 - **Era**: Album/era name
 - **Name**: Song title (with features, producers, etc.)
 - **Link(s)**: pillowcase.su download links
