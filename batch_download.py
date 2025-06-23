@@ -128,21 +128,42 @@ def get_csv_from_url(url):
         match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
         if match:
             spreadsheet_id = match.group(1)
-            csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid=0"
-            try:
-                response = requests.get(csv_url)
-                response.raise_for_status()
-                return response.text
-            except Exception as e:
-                print(f"Failed to download CSV from Google Sheets: {e}")
-                return None
+            # Try different CSV export URLs
+            csv_urls = [
+                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid=0",
+                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv",
+                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&gid=0"
+            ]
+            
+            for csv_url in csv_urls:
+                try:
+                    print(f"Trying to download from: {csv_url}")
+                    response = requests.get(csv_url, timeout=30)
+                    response.raise_for_status()
+                    content = response.text
+                    if content and len(content) > 100:  # Basic check for valid CSV content
+                        print("Successfully downloaded CSV content")
+                        return content
+                    else:
+                        print(f"Received empty or invalid content from {csv_url}")
+                except Exception as e:
+                    print(f"Failed to download from {csv_url}: {e}")
+                    continue
+            
+            print("All CSV export attempts failed. The spreadsheet might be:")
+            print("- Not publicly accessible")
+            print("- Requiring authentication")
+            print("- Flagged as suspicious by Google")
+            print("- Using a different sharing format")
+            return None
         else:
             print("Invalid Google Sheets URL format")
             return None
     else:
         # Assume it's a direct CSV URL
         try:
-            response = requests.get(url)
+            print(f"Trying to download from direct URL: {url}")
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             return response.text
         except Exception as e:
@@ -150,22 +171,53 @@ def get_csv_from_url(url):
             return None
 
 def main():
-    # Prompt user for spreadsheet URL
-    print("Enter the Google Sheets URL or direct CSV URL:")
-    spreadsheet_url = input().strip()
+    print("Choose input method:")
+    print("1. Google Sheets URL")
+    print("2. Local CSV file")
     
-    # Download CSV content
-    csv_content = get_csv_from_url(spreadsheet_url)
-    if not csv_content:
-        print("Failed to download spreadsheet. Please check the URL and try again.")
-        return
+    while True:
+        try:
+            choice = int(input("Enter your choice (1 or 2): "))
+            if choice in [1, 2]:
+                break
+            else:
+                print("Please enter 1 or 2.")
+        except ValueError:
+            print("Invalid input. Please enter 1 or 2.")
     
-    # Parse CSV content
-    try:
-        df = pd.read_csv(pd.StringIO(csv_content))
-    except Exception as e:
-        print(f"Failed to parse CSV: {e}")
-        return
+    if choice == 1:
+        # Google Sheets URL method
+        print("Enter the Google Sheets URL or direct CSV URL:")
+        spreadsheet_url = input().strip()
+        
+        # Download CSV content
+        csv_content = get_csv_from_url(spreadsheet_url)
+        if not csv_content:
+            print("Failed to download spreadsheet. Please check the URL and try again.")
+            return
+        
+        # Parse CSV content
+        try:
+            df = pd.read_csv(pd.StringIO(csv_content))
+        except Exception as e:
+            print(f"Failed to parse CSV: {e}")
+            return
+    else:
+        # Local CSV file method
+        print("Enter the path to your CSV file:")
+        csv_path = input().strip()
+        
+        # Check if file exists
+        if not os.path.exists(csv_path):
+            print(f"File not found: {csv_path}")
+            return
+        
+        # Parse CSV file
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            print(f"Failed to parse CSV file: {e}")
+            return
     
     df.columns = [col.strip() for col in df.columns]
     name_col = find_column(df.columns, 'name')
