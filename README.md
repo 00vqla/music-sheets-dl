@@ -10,6 +10,14 @@ A Python script that downloads music files from Google Sheets trackers, specific
   - Artist and composer extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
 
+## New in Latest Version
+
+- **Robust CSV Header Detection**: The script now automatically detects the correct header row, even if your CSV has extra info lines or headers with embedded newlines/quotes.
+- **Handles Quoted/Multiline Headers**: Works with CSVs where column names are quoted and span multiple lines.
+- **Download All Eras at Once**: You can now select 'All Eras' to download every era in the tracker in one go.
+- **Parallel Era Downloads**: When downloading all eras, the script processes each era simultaneously for much faster batch downloads.
+- **File Path Flexibility**: You can enter file paths with or without quotes when selecting a local CSV file.
+
 ## Installation
 
 1. **Clone the repository:**
