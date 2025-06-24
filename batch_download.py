@@ -7,6 +7,8 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 import regex
+from mutagen.id3 import ID3, ID3NoHeaderError, COMM
+from tqdm import tqdm
 
 DOWNLOAD_DIR = 'downloads'
 
@@ -72,19 +74,37 @@ def download_file(file_id, dest_folder, title):
 def embed_metadata(mp3_path, title, artist=None, composer=None):
     try:
         audio = EasyID3(mp3_path)
-    except Exception:
+    except ID3NoHeaderError:
         audio = EasyID3()
+        audio.save(mp3_path)
+        audio = EasyID3(mp3_path)
     audio['title'] = title
     if artist:
         audio['artist'] = artist
     if composer:
         audio['composer'] = composer
+    # Add comment field if possible
+    try:
+        audio['comment'] = 't.me/vqvlt'
+    except Exception:
+        # Fallback: use ID3 COMM frame
+        id3 = ID3(mp3_path)
+        id3.add(COMM(encoding=3, lang='eng', desc='', text='t.me/vqvlt'))
+        id3.save(mp3_path)
     audio.save(mp3_path)
     print(f"Embedded metadata into {mp3_path}")
 
 def find_column(columns, keyword):
+    # Normalize: lowercase, remove spaces, underscores, dashes, parentheses, and trailing s or (s)
+    norm_keyword = re.sub(r'[^a-z0-9]', '', keyword.lower())
     for col in columns:
-        if keyword.lower() in col.lower():
+        norm_col = re.sub(r'[^a-z0-9]', '', col.lower())
+        # Also handle plural (s) or s at the end
+        if norm_col.endswith('s') and not norm_keyword.endswith('s'):
+            norm_col_singular = norm_col[:-1]
+        else:
+            norm_col_singular = norm_col
+        if norm_keyword in norm_col or norm_keyword in norm_col_singular:
             return col
     return None
 
@@ -208,7 +228,7 @@ def process_era(df, selected_era, link_col, name_col, length_col, quality_col, r
     os.makedirs(era_folder, exist_ok=True)
     filtered = df[(df['Era'].str.strip().str.lower() == selected_era.strip().lower()) & (df[link_col].notnull()) & (df[link_col].str.strip() != '')]
     print(f"Found {len(filtered)} files to download for Era: {selected_era}")
-    for idx, row in filtered.iterrows():
+    for idx, row in enumerate(tqdm(filtered.iterrows(), total=len(filtered), desc=f"{selected_era}")):
         url = row[link_col].strip()
         file_id = extract_id(url)
         name = row[name_col]
@@ -216,10 +236,12 @@ def process_era(df, selected_era, link_col, name_col, length_col, quality_col, r
         quality = row[quality_col] if quality_col else None
         title, artist, composer = process_title_and_metadata(name, available_length, quality)
         if file_id:
+            print(f"[INFO] Downloading: {title}")
             mp3_path, ext = download_file(file_id, era_folder, title)
             if mp3_path and title:
                 if ext == '.mp3':
                     try:
+                        print(f"[INFO] Tagging: {mp3_path}")
                         embed_metadata(mp3_path, title, artist, composer)
                         results['tagged'].append(mp3_path)
                     except Exception as e:
@@ -229,151 +251,154 @@ def process_era(df, selected_era, link_col, name_col, length_col, quality_col, r
                     print(f"[Warning] Skipping tagging for non-MP3 file: {mp3_path}")
                     results['not_tagged'].append(mp3_path)
             else:
+                print(f"[Error] Failed to download: {title} (id: {file_id})")
                 results['failed'].append(f"{title} (id: {file_id})")
         else:
-            print(f"Skipping invalid or non-pillowcase.su URL: {url}")
+            print(f"[Error] Skipping invalid or non-pillowcase.su URL: {url}")
             results['failed'].append(f"{title} (id: {file_id})")
 
 def main():
-    print("Choose input method:")
-    print("1. Google Sheets URL")
-    print("2. Local CSV file")
-    
-    while True:
-        try:
-            choice = int(input("Enter your choice (1 or 2): "))
-            if choice in [1, 2]:
-                break
-            else:
-                print("Please enter 1 or 2.")
-        except ValueError:
-            print("Invalid input. Please enter 1 or 2.")
-    
-    if choice == 1:
-        # Google Sheets URL method
-        print("Enter the Google Sheets URL or direct CSV URL:")
-        spreadsheet_url = input().strip()
+    try:
+        print("Choose input method:")
+        print("1. Google Sheets URL")
+        print("2. Local CSV file")
         
-        # Download CSV content
-        csv_content = get_csv_from_url(spreadsheet_url)
-        if not csv_content:
-            print("Failed to download spreadsheet. Please check the URL and try again.")
-            return
+        while True:
+            try:
+                choice = int(input("Enter your choice (1 or 2): "))
+                if choice in [1, 2]:
+                    break
+                else:
+                    print("Please enter 1 or 2.")
+            except ValueError:
+                print("Invalid input. Please enter 1 or 2.")
         
-        # Parse CSV content
-        try:
-            df = pd.read_csv(StringIO(csv_content))
-        except Exception as e:
-            print(f"Failed to parse CSV: {e}")
-            return
-    else:
-        # Local CSV file method
-        print("Enter the path to your CSV file:")
-        csv_path = input().strip()
-        # Strip quotes if present
-        if (csv_path.startswith('"') and csv_path.endswith('"')) or (csv_path.startswith("'") and csv_path.endswith("'")):
-            csv_path = csv_path[1:-1].strip()
-        
-        # Check if file exists
-        if not os.path.exists(csv_path):
-            print(f"File not found: {csv_path}")
-            return
-        
-        # --- Improved logic: Robust header row detection for multiline quoted headers ---
-        required_keywords = ['era', 'name', 'link']
-        header_row_index = None
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            # Read first 50 lines as a block
-            block = ''.join([f.readline() for _ in range(50)])
-            # Parse as CSV rows
-            rows = list(csv.reader(block.splitlines()))
-            for i, fields in enumerate(rows):
-                # Normalize fields for matching
-                norm_fields = [field.lower().replace('\n', ' ').replace(' ', '') for field in fields]
-                match_count = 0
-                for keyword in required_keywords:
-                    if any(keyword in field for field in norm_fields):
-                        match_count += 1
-                # Check next row for real data (at least 2 non-empty fields)
-                if match_count >= 3 and i+1 < len(rows):
-                    next_fields = rows[i+1]
-                    non_empty = sum(1 for f in next_fields if f.strip())
-                    if non_empty >= 2:
+        if choice == 1:
+            # Google Sheets URL method
+            print("Enter the Google Sheets URL or direct CSV URL:")
+            spreadsheet_url = input().strip()
+            
+            # Download CSV content
+            csv_content = get_csv_from_url(spreadsheet_url)
+            if not csv_content:
+                print("Failed to download spreadsheet. Please check the URL and try again.")
+                return
+            
+            # Parse CSV content
+            try:
+                df = pd.read_csv(StringIO(csv_content))
+            except Exception as e:
+                print(f"Failed to parse CSV: {e}")
+                return
+        else:
+            # Local CSV file method
+            print("Enter the path to your CSV file:")
+            csv_path = input().strip()
+            # Strip quotes if present
+            if (csv_path.startswith('"') and csv_path.endswith('"')) or (csv_path.startswith("'") and csv_path.endswith("'")):
+                csv_path = csv_path[1:-1].strip()
+            
+            # Check if file exists
+            if not os.path.exists(csv_path):
+                print(f"File not found: {csv_path}")
+                return
+            
+            # --- Improved logic: Robust header row detection for multiline quoted headers ---
+            header_row_index = None
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                # Read first 50 lines as a block
+                block = ''.join([f.readline() for _ in range(50)])
+                # Parse as CSV rows
+                rows = list(csv.reader(block.splitlines()))
+                for i, fields in enumerate(rows):
+                    # Normalize fields for matching (remove non-alphanum, lowercase)
+                    norm_fields = [re.sub(r'[^a-z0-9]', '', field.lower()) for field in fields]
+                    # Check for 'era' and ('name' or 'title') in the header row
+                    has_era = any('era' in field for field in norm_fields)
+                    has_name = any('name' in field or 'title' in field for field in norm_fields)
+                    # Optionally, also check for 'link' as before
+                    has_link = any('link' in field for field in norm_fields)
+                    match_count = sum([has_era, has_name, has_link])
+                    # Accept if at least 'era' and 'name'/'title' are present
+                    if match_count >= 2 and has_era and has_name:
                         header_row_index = i
                         break
-        if header_row_index is None:
-            print("Could not find a valid header row in the first 50 lines of the CSV file.")
+            if header_row_index is None:
+                print("Could not find a valid header row in the first 50 lines of the CSV file.")
+                return
+            # --- End improved logic ---
+            try:
+                df = pd.read_csv(csv_path, header=header_row_index, engine='python')
+            except Exception as e:
+                print(f"Failed to parse CSV file: {e}")
+                return
+        
+        df.columns = [col.strip() for col in df.columns]
+        name_col = find_column(df.columns, 'name')
+        link_col = find_column(df.columns, 'link')
+        length_col = find_column(df.columns, 'available length')
+        quality_col = find_column(df.columns, 'quality')
+        if not name_col or not link_col:
+            print("Could not find required columns. Available columns:")
+            print(list(df.columns))
             return
-        # --- End improved logic ---
-        try:
-            df = pd.read_csv(csv_path, header=header_row_index, engine='python')
-        except Exception as e:
-            print(f"Failed to parse CSV file: {e}")
-            return
-    
-    df.columns = [col.strip() for col in df.columns]
-    name_col = find_column(df.columns, 'name')
-    link_col = find_column(df.columns, 'link')
-    length_col = find_column(df.columns, 'available length')
-    quality_col = find_column(df.columns, 'quality')
-    if not name_col or not link_col:
-        print("Could not find required columns. Available columns:")
-        print(list(df.columns))
-        return
-    # Only consider rows with a non-empty link for Era selection
-    valid_rows = df[df[link_col].notnull() & (df[link_col].str.strip() != '')]
-    # List eras in the order they appear (chronological)
-    eras = valid_rows['Era'].dropna().drop_duplicates().tolist()
-    print("Available Eras:")
-    for idx, era in enumerate(eras):
-        print(f"{idx+1}. {era}")
-    print("0. All Eras")
-    while True:
-        try:
-            era_choice = int(input(f"Enter the number of the Era you want to download (0 for All): "))
-            if 0 <= era_choice <= len(eras):
-                break
-            else:
-                print(f"Please enter a number between 0 and {len(eras)}.")
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-    if era_choice == 0:
-        selected_eras = eras
-    else:
-        selected_eras = [eras[era_choice-1]]
-    results = {'tagged': [], 'not_tagged': [], 'failed': []}
-    if len(selected_eras) == 1:
-        process_era(df, selected_eras[0], link_col, name_col, length_col, quality_col, results)
-    else:
-        print(f"Processing {len(selected_eras)} eras in parallel...")
-        from threading import Lock
-        lock = Lock()
-        def thread_safe_process(*args):
-            # Wrap process_era to make results thread-safe
-            local_results = {'tagged': [], 'not_tagged': [], 'failed': []}
-            process_era(*args, local_results)
-            with lock:
-                results['tagged'].extend(local_results['tagged'])
-                results['not_tagged'].extend(local_results['not_tagged'])
-                results['failed'].extend(local_results['failed'])
-        with ThreadPoolExecutor(max_workers=min(8, len(selected_eras))) as executor:
-            futures = [executor.submit(thread_safe_process, df, era, link_col, name_col, length_col, quality_col) for era in selected_eras]
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"Error processing an era: {e}")
-    # Print summary
-    print("\n--- Download Summary ---")
-    print(f"\nDownloaded and tagged successfully ({len(results['tagged'])}):")
-    for f in results['tagged']:
-        print(f"  {f}")
-    print(f"\nDownloaded but not tagged due to file format or error ({len(results['not_tagged'])}):")
-    for f in results['not_tagged']:
-        print(f"  {f}")
-    print(f"\nFailed to download ({len(results['failed'])}):")
-    for f in results['failed']:
-        print(f"  {f}")
+        # Only consider rows with a non-empty link for Era selection
+        valid_rows = df[df[link_col].notnull() & (df[link_col].str.strip() != '')]
+        # List eras in the order they appear (chronological)
+        eras = valid_rows['Era'].dropna().drop_duplicates().tolist()
+        print("Available Eras:")
+        for idx, era in enumerate(eras):
+            print(f"{idx+1}. {era}")
+        print("0. All Eras")
+        while True:
+            try:
+                era_choice = int(input(f"Enter the number of the Era you want to download (0 for All): "))
+                if 0 <= era_choice <= len(eras):
+                    break
+                else:
+                    print(f"Please enter a number between 0 and {len(eras)}.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+        if era_choice == 0:
+            selected_eras = eras
+        else:
+            selected_eras = [eras[era_choice-1]]
+        results = {'tagged': [], 'not_tagged': [], 'failed': []}
+        if len(selected_eras) == 1:
+            process_era(df, selected_eras[0], link_col, name_col, length_col, quality_col, results)
+        else:
+            print(f"Processing {len(selected_eras)} eras in parallel...")
+            from threading import Lock
+            lock = Lock()
+            def thread_safe_process(df, era, link_col, name_col, length_col, quality_col):
+                # Wrap process_era to make results thread-safe
+                local_results = {'tagged': [], 'not_tagged': [], 'failed': []}
+                process_era(df, era, link_col, name_col, length_col, quality_col, local_results)
+                with lock:
+                    results['tagged'].extend(local_results['tagged'])
+                    results['not_tagged'].extend(local_results['not_tagged'])
+                    results['failed'].extend(local_results['failed'])
+            with ThreadPoolExecutor(max_workers=min(8, len(selected_eras))) as executor:
+                futures = [executor.submit(thread_safe_process, df, era, link_col, name_col, length_col, quality_col) for era in selected_eras]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"Error processing an era: {e}")
+        # Print summary
+        print("\n--- Download Summary ---")
+        print(f"\nDownloaded and tagged successfully ({len(results['tagged'])}):")
+        for f in results['tagged']:
+            print(f"  {f}")
+        print(f"\nDownloaded but not tagged due to file format or error ({len(results['not_tagged'])}):")
+        for f in results['not_tagged']:
+            print(f"  {f}")
+        print(f"\nFailed to download ({len(results['failed'])}):")
+        for f in results['failed']:
+            print(f"  {f}")
+    except KeyboardInterrupt:
+        print("\nProcess cancelled by user.")
+        exit(0)
 
 if __name__ == '__main__':
     main() 
