@@ -6,6 +6,7 @@ from mutagen.easyid3 import EasyID3
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
+import regex
 
 DOWNLOAD_DIR = 'downloads'
 
@@ -17,25 +18,18 @@ def extract_id(url):
     return None
 
 def remove_emoji(text):
-    # Remove all emoji using regex
-    emoji_pattern = re.compile(
-        "["
-        u"\U0001F600-\U0001F64F"  # emoticons
-        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-        u"\U0001F680-\U0001F6FF"  # transport & map symbols
-        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
-        u"\U00002700-\U000027BF"  # Dingbats
-        u"\U000024C2-\U0001F251"  # Enclosed characters
-        "]+", flags=re.UNICODE)
-    return emoji_pattern.sub(r'', text)
+    # Remove all emoji and symbols using Unicode properties
+    emoji_pattern = regex.compile(r'[\p{Emoji}\p{So}\p{Sk}\p{Cn}]', flags=regex.UNICODE)
+    return emoji_pattern.sub('', text)
 
 def sanitize_folder_name(name):
     # Remove or replace characters not allowed in folder names
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip()
 
 def sanitize_filename(filename):
+    # Remove all emojis from filename
+    filename = remove_emoji(filename)
     # Remove or replace characters not allowed in filenames
-    # Replace invalid characters with underscores
     filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
     # Remove leading/trailing spaces and dots
     filename = filename.strip(' .')
@@ -95,7 +89,7 @@ def find_column(columns, keyword):
     return None
 
 def process_title_and_metadata(name, available_length, quality=None):
-    # Remove emoji
+    # Remove emoji from name for both filename and metadata
     name = remove_emoji(str(name))
     # Extract (prod. ...) for composer
     composer = None
@@ -143,6 +137,8 @@ def process_title_and_metadata(name, available_length, quality=None):
                 title = main_title or alt_title
     # Remove square brackets from title
     title = re.sub(r'\[[^\]]*\]', '', title).strip()
+    # Remove emoji from title (for both filename and metadata)
+    title = remove_emoji(title)
     # Add (Snippet) if needed
     if isinstance(available_length, str):
         if available_length.strip().lower() == 'snippet':
@@ -283,37 +279,34 @@ def main():
             print(f"File not found: {csv_path}")
             return
         
-        # --- Improved logic: Robust header row detection ---
+        # --- Improved logic: Robust header row detection for multiline quoted headers ---
         required_keywords = ['era', 'name', 'link']
         header_row_index = None
         with open(csv_path, 'r', encoding='utf-8') as f:
-            lines = []
-            for _ in range(20):
-                line = f.readline()
-                if not line:
-                    break
-                lines.append(line)
-            # Try each line as a possible header
-            for i, line in enumerate(lines):
-                try:
-                    reader = csv.reader([line])
-                    fields = next(reader)
-                    match_count = 0
-                    for field in fields:
-                        field_lower = field.lower()
-                        if any(keyword in field_lower for keyword in required_keywords):
-                            match_count += 1
-                    if match_count >= 2:
+            # Read first 50 lines as a block
+            block = ''.join([f.readline() for _ in range(50)])
+            # Parse as CSV rows
+            rows = list(csv.reader(block.splitlines()))
+            for i, fields in enumerate(rows):
+                # Normalize fields for matching
+                norm_fields = [field.lower().replace('\n', ' ').replace(' ', '') for field in fields]
+                match_count = 0
+                for keyword in required_keywords:
+                    if any(keyword in field for field in norm_fields):
+                        match_count += 1
+                # Check next row for real data (at least 2 non-empty fields)
+                if match_count >= 3 and i+1 < len(rows):
+                    next_fields = rows[i+1]
+                    non_empty = sum(1 for f in next_fields if f.strip())
+                    if non_empty >= 2:
                         header_row_index = i
                         break
-                except Exception:
-                    continue
         if header_row_index is None:
-            print("Could not find a valid header row in the first 20 lines of the CSV file.")
+            print("Could not find a valid header row in the first 50 lines of the CSV file.")
             return
         # --- End improved logic ---
         try:
-            df = pd.read_csv(csv_path, header=header_row_index)
+            df = pd.read_csv(csv_path, header=header_row_index, engine='python')
         except Exception as e:
             print(f"Failed to parse CSV file: {e}")
             return
@@ -329,7 +322,8 @@ def main():
         return
     # Only consider rows with a non-empty link for Era selection
     valid_rows = df[df[link_col].notnull() & (df[link_col].str.strip() != '')]
-    eras = sorted(valid_rows['Era'].dropna().unique())
+    # List eras in the order they appear (chronological)
+    eras = valid_rows['Era'].dropna().drop_duplicates().tolist()
     print("Available Eras:")
     for idx, era in enumerate(eras):
         print(f"{idx+1}. {era}")
