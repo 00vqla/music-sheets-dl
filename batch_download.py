@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 import re
 from mutagen.easyid3 import EasyID3
+import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DOWNLOAD_DIR = 'downloads'
 
@@ -187,6 +189,25 @@ def get_csv_from_url(url):
             print(f"Failed to download CSV from URL: {e}")
             return None
 
+def process_era(df, selected_era, link_col, name_col, length_col, quality_col):
+    era_folder = os.path.join(DOWNLOAD_DIR, sanitize_folder_name(selected_era))
+    os.makedirs(era_folder, exist_ok=True)
+    filtered = df[(df['Era'].str.strip().str.lower() == selected_era.strip().lower()) & (df[link_col].notnull()) & (df[link_col].str.strip() != '')]
+    print(f"Found {len(filtered)} files to download for Era: {selected_era}")
+    for idx, row in filtered.iterrows():
+        url = row[link_col].strip()
+        file_id = extract_id(url)
+        name = row[name_col]
+        available_length = row[length_col] if length_col else None
+        quality = row[quality_col] if quality_col else None
+        title, artist, composer = process_title_and_metadata(name, available_length, quality)
+        if file_id:
+            mp3_path = download_file(file_id, era_folder, title)
+            if mp3_path and title:
+                embed_metadata(mp3_path, title, artist, composer)
+        else:
+            print(f"Skipping invalid or non-pillowcase.su URL: {url}")
+
 def main():
     print("Choose input method:")
     print("1. Google Sheets URL")
@@ -223,15 +244,46 @@ def main():
         # Local CSV file method
         print("Enter the path to your CSV file:")
         csv_path = input().strip()
+        # Strip quotes if present
+        if (csv_path.startswith('"') and csv_path.endswith('"')) or (csv_path.startswith("'") and csv_path.endswith("'")):
+            csv_path = csv_path[1:-1].strip()
         
         # Check if file exists
         if not os.path.exists(csv_path):
             print(f"File not found: {csv_path}")
             return
         
-        # Parse CSV file
+        # --- Improved logic: Robust header row detection ---
+        required_keywords = ['era', 'name', 'link']
+        header_row_index = None
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            lines = []
+            for _ in range(20):
+                line = f.readline()
+                if not line:
+                    break
+                lines.append(line)
+            # Try each line as a possible header
+            for i, line in enumerate(lines):
+                try:
+                    reader = csv.reader([line])
+                    fields = next(reader)
+                    match_count = 0
+                    for field in fields:
+                        field_lower = field.lower()
+                        if any(keyword in field_lower for keyword in required_keywords):
+                            match_count += 1
+                    if match_count >= 2:
+                        header_row_index = i
+                        break
+                except Exception:
+                    continue
+        if header_row_index is None:
+            print("Could not find a valid header row in the first 20 lines of the CSV file.")
+            return
+        # --- End improved logic ---
         try:
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, header=header_row_index)
         except Exception as e:
             print(f"Failed to parse CSV file: {e}")
             return
@@ -251,35 +303,31 @@ def main():
     print("Available Eras:")
     for idx, era in enumerate(eras):
         print(f"{idx+1}. {era}")
+    print("0. All Eras")
     while True:
         try:
-            era_choice = int(input("Enter the number of the Era you want to download: "))
-            if 1 <= era_choice <= len(eras):
-                selected_era = eras[era_choice-1]
+            era_choice = int(input(f"Enter the number of the Era you want to download (0 for All): "))
+            if 0 <= era_choice <= len(eras):
                 break
             else:
-                print(f"Please enter a number between 1 and {len(eras)}.")
+                print(f"Please enter a number between 0 and {len(eras)}.")
         except ValueError:
             print("Invalid input. Please enter a number.")
-    # Create subfolder for the selected Era
-    era_folder = os.path.join(DOWNLOAD_DIR, sanitize_folder_name(selected_era))
-    os.makedirs(era_folder, exist_ok=True)
-    # Filter rows
-    filtered = df[(df['Era'].str.strip().str.lower() == selected_era.strip().lower()) & (df[link_col].notnull()) & (df[link_col].str.strip() != '')]
-    print(f"Found {len(filtered)} files to download for Era: {selected_era}")
-    for idx, row in filtered.iterrows():
-        url = row[link_col].strip()
-        file_id = extract_id(url)
-        name = row[name_col]
-        available_length = row[length_col] if length_col else None
-        quality = row[quality_col] if quality_col else None
-        title, artist, composer = process_title_and_metadata(name, available_length, quality)
-        if file_id:
-            mp3_path = download_file(file_id, era_folder, title)
-            if mp3_path and title:
-                embed_metadata(mp3_path, title, artist, composer)
-        else:
-            print(f"Skipping invalid or non-pillowcase.su URL: {url}")
+    if era_choice == 0:
+        selected_eras = eras
+    else:
+        selected_eras = [eras[era_choice-1]]
+    if len(selected_eras) == 1:
+        process_era(df, selected_eras[0], link_col, name_col, length_col, quality_col)
+    else:
+        print(f"Processing {len(selected_eras)} eras in parallel...")
+        with ThreadPoolExecutor(max_workers=min(8, len(selected_eras))) as executor:
+            futures = [executor.submit(process_era, df, era, link_col, name_col, length_col, quality_col) for era in selected_eras]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"Error processing an era: {e}")
 
 if __name__ == '__main__':
     main() 

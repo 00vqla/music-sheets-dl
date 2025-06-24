@@ -14,7 +14,7 @@ A Python script that downloads music files from Google Sheets trackers, specific
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/00vqla/spreadsheet-converter
    cd batch-download-spreadsheet
    ```
 
