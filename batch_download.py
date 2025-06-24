@@ -5,6 +5,7 @@ import re
 from mutagen.easyid3 import EasyID3
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import StringIO
 
 DOWNLOAD_DIR = 'downloads'
 
@@ -45,25 +46,34 @@ def sanitize_filename(filename):
 
 def download_file(file_id, dest_folder, title):
     api_url = f"https://api.pillowcase.su/api/download/{file_id}.mp3"
-    # Use title as filename, fallback to file_id if title is empty
-    if title and title.strip():
-        safe_title = sanitize_filename(title)
-        local_filename = os.path.join(dest_folder, f"{safe_title}.mp3")
-    else:
-        local_filename = os.path.join(dest_folder, f"{file_id}.mp3")
-    
+    # Download the file and detect its type
     try:
         with requests.get(api_url, stream=True) as r:
             r.raise_for_status()
+            # Detect file type from Content-Type header
+            content_type = r.headers.get('Content-Type', '').lower()
+            ext = '.mp3'  # default
+            if 'wav' in content_type:
+                ext = '.wav'
+            elif 'm4a' in content_type or 'mp4' in content_type:
+                ext = '.m4a'
+            elif 'flac' in content_type:
+                ext = '.flac'
+            # Use title as filename, fallback to file_id if title is empty
+            if title and title.strip():
+                safe_title = sanitize_filename(title)
+                local_filename = os.path.join(dest_folder, f"{safe_title}{ext}")
+            else:
+                local_filename = os.path.join(dest_folder, f"{file_id}{ext}")
             with open(local_filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
         print(f"Downloaded: {api_url} -> {local_filename}")
-        return local_filename
+        return local_filename, ext
     except Exception as e:
         print(f"Failed to download {api_url}: {e}")
-        return None
+        return None, None
 
 def embed_metadata(mp3_path, title, artist=None, composer=None):
     try:
@@ -107,20 +117,30 @@ def process_title_and_metadata(name, available_length, quality=None):
     if len(dash_split) == 2:
         artist = dash_split[0].strip()
         title = dash_split[1].strip()
-    # Handle "???" titles by using text in parentheses
+    # Handle '???' titles by using text in parentheses or removing '???'
     if title.strip() == "???":
-        # Look for text in parentheses after the "???"
+        # Look for text in parentheses after the '???'
         paren_match = re.search(r'\(([^)]+)\)', name)
         if paren_match:
-            title = paren_match.group(1).strip()
-    # Handle other parentheses as alternative titles
+            alt_title = paren_match.group(1).replace(',', ' / ').replace('  ', ' ').strip()
+            title = alt_title
+        else:
+            title = '???'
     else:
         # Look for text in parentheses that's not already handled
         paren_match = re.search(r'\(([^)]+)\)', title)
         if paren_match and not re.search(r'feat\.', paren_match.group(1), re.IGNORECASE):
             main_title = title.replace(paren_match.group(0), '').strip()
-            alt_title = paren_match.group(1).strip()
-            title = f"{main_title} / {alt_title}"
+            alt_title = paren_match.group(1).replace(',', ' / ').replace('  ', ' ').strip()
+            # If either main_title or alt_title is '???', use only the other
+            if main_title.strip() == '???' and alt_title.strip() != '???':
+                title = alt_title
+            elif alt_title.strip() == '???' and main_title.strip() != '???':
+                title = main_title
+            elif main_title.strip() != '' and alt_title.strip() != '':
+                title = f"{main_title} / {alt_title}"
+            else:
+                title = main_title or alt_title
     # Remove square brackets from title
     title = re.sub(r'\[[^\]]*\]', '', title).strip()
     # Add (Snippet) if needed
@@ -141,40 +161,38 @@ def process_title_and_metadata(name, available_length, quality=None):
     return title, artist, composer
 
 def get_csv_from_url(url):
+    # If it's already a googleusercontent.com direct CSV link, use as-is
+    if 'googleusercontent.com' in url and 'format=csv' in url:
+        try:
+            print(f"Trying to download from direct Googleusercontent CSV URL: {url}")
+            response = requests.get(url, timeout=30, allow_redirects=True)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            print(f"Failed to download CSV from URL: {e}")
+            return None
     # Convert Google Sheets URL to CSV export URL
     if 'docs.google.com/spreadsheets' in url:
-        # Extract the spreadsheet ID
-        match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
-        if match:
-            spreadsheet_id = match.group(1)
-            # Try different CSV export URLs
-            csv_urls = [
-                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid=0",
-                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv",
-                f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&gid=0"
-            ]
-            
-            for csv_url in csv_urls:
-                try:
-                    print(f"Trying to download from: {csv_url}")
-                    response = requests.get(csv_url, timeout=30)
-                    response.raise_for_status()
-                    content = response.text
-                    if content and len(content) > 100:  # Basic check for valid CSV content
-                        print("Successfully downloaded CSV content")
-                        return content
-                    else:
-                        print(f"Received empty or invalid content from {csv_url}")
-                except Exception as e:
-                    print(f"Failed to download from {csv_url}: {e}")
-                    continue
-            
-            print("All CSV export attempts failed. The spreadsheet might be:")
-            print("- Not publicly accessible")
-            print("- Requiring authentication")
-            print("- Flagged as suspicious by Google")
-            print("- Using a different sharing format")
-            return None
+        # Extract the spreadsheet ID and gid
+        id_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
+        gid_match = re.search(r'[?&]gid=([0-9]+)', url)
+        if id_match:
+            spreadsheet_id = id_match.group(1)
+            gid = gid_match.group(1) if gid_match else '0'
+            csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
+            try:
+                print(f"Trying to download from: {csv_url}")
+                response = requests.get(csv_url, timeout=30, allow_redirects=True)
+                response.raise_for_status()
+                content = response.text
+                if content and len(content) > 100:  # Basic check for valid CSV content
+                    print("Successfully downloaded CSV content")
+                    return content
+                else:
+                    print(f"Received empty or invalid content from {csv_url}")
+            except Exception as e:
+                print(f"Failed to download from {csv_url}: {e}")
+                return None
         else:
             print("Invalid Google Sheets URL format")
             return None
@@ -189,7 +207,7 @@ def get_csv_from_url(url):
             print(f"Failed to download CSV from URL: {e}")
             return None
 
-def process_era(df, selected_era, link_col, name_col, length_col, quality_col):
+def process_era(df, selected_era, link_col, name_col, length_col, quality_col, results):
     era_folder = os.path.join(DOWNLOAD_DIR, sanitize_folder_name(selected_era))
     os.makedirs(era_folder, exist_ok=True)
     filtered = df[(df['Era'].str.strip().str.lower() == selected_era.strip().lower()) & (df[link_col].notnull()) & (df[link_col].str.strip() != '')]
@@ -202,11 +220,23 @@ def process_era(df, selected_era, link_col, name_col, length_col, quality_col):
         quality = row[quality_col] if quality_col else None
         title, artist, composer = process_title_and_metadata(name, available_length, quality)
         if file_id:
-            mp3_path = download_file(file_id, era_folder, title)
+            mp3_path, ext = download_file(file_id, era_folder, title)
             if mp3_path and title:
-                embed_metadata(mp3_path, title, artist, composer)
+                if ext == '.mp3':
+                    try:
+                        embed_metadata(mp3_path, title, artist, composer)
+                        results['tagged'].append(mp3_path)
+                    except Exception as e:
+                        print(f"[Warning] Tagging failed for {mp3_path}: {e}")
+                        results['not_tagged'].append(mp3_path)
+                else:
+                    print(f"[Warning] Skipping tagging for non-MP3 file: {mp3_path}")
+                    results['not_tagged'].append(mp3_path)
+            else:
+                results['failed'].append(f"{title} (id: {file_id})")
         else:
             print(f"Skipping invalid or non-pillowcase.su URL: {url}")
+            results['failed'].append(f"{title} (id: {file_id})")
 
 def main():
     print("Choose input method:")
@@ -236,7 +266,7 @@ def main():
         
         # Parse CSV content
         try:
-            df = pd.read_csv(pd.StringIO(csv_content))
+            df = pd.read_csv(StringIO(csv_content))
         except Exception as e:
             print(f"Failed to parse CSV: {e}")
             return
@@ -317,17 +347,39 @@ def main():
         selected_eras = eras
     else:
         selected_eras = [eras[era_choice-1]]
+    results = {'tagged': [], 'not_tagged': [], 'failed': []}
     if len(selected_eras) == 1:
-        process_era(df, selected_eras[0], link_col, name_col, length_col, quality_col)
+        process_era(df, selected_eras[0], link_col, name_col, length_col, quality_col, results)
     else:
         print(f"Processing {len(selected_eras)} eras in parallel...")
+        from threading import Lock
+        lock = Lock()
+        def thread_safe_process(*args):
+            # Wrap process_era to make results thread-safe
+            local_results = {'tagged': [], 'not_tagged': [], 'failed': []}
+            process_era(*args, local_results)
+            with lock:
+                results['tagged'].extend(local_results['tagged'])
+                results['not_tagged'].extend(local_results['not_tagged'])
+                results['failed'].extend(local_results['failed'])
         with ThreadPoolExecutor(max_workers=min(8, len(selected_eras))) as executor:
-            futures = [executor.submit(process_era, df, era, link_col, name_col, length_col, quality_col) for era in selected_eras]
+            futures = [executor.submit(thread_safe_process, df, era, link_col, name_col, length_col, quality_col) for era in selected_eras]
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     print(f"Error processing an era: {e}")
+    # Print summary
+    print("\n--- Download Summary ---")
+    print(f"\nDownloaded and tagged successfully ({len(results['tagged'])}):")
+    for f in results['tagged']:
+        print(f"  {f}")
+    print(f"\nDownloaded but not tagged due to file format or error ({len(results['not_tagged'])}):")
+    for f in results['not_tagged']:
+        print(f"  {f}")
+    print(f"\nFailed to download ({len(results['failed'])}):")
+    for f in results['failed']:
+        print(f"  {f}")
 
 if __name__ == '__main__':
     main() 
