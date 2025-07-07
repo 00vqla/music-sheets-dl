@@ -7,16 +7,13 @@ A Python script that downloads music files from Google Sheets trackers, specific
 - **Dynamic Era Selection**: Choose from available eras in the spreadsheet
 - **Automatic Metadata Embedding**: 
   - Title formatting (removes grailed emojis, brackets, handles features)
-  - Artist and composer extraction
+  - Artist and producers extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
 
 ## New in Latest Version
 
-- **Robust CSV Header Detection**: The script now automatically detects the correct header row, even if your CSV has extra info lines or headers with embedded newlines/quotes.
-- **Handles Quoted/Multiline Headers**: Works with CSVs where column names are quoted and span multiple lines.
 - **Download All Eras at Once**: You can now select 'All Eras' to download every era in the tracker in one go.
 - **Parallel Era Downloads**: When downloading all eras, the script processes each era simultaneously for much faster batch downloads.
-- **File Path Flexibility**: You can enter file paths with or without quotes when selecting a local CSV file.
 
 ## Installation
 
@@ -35,7 +32,7 @@ A Python script that downloads music files from Google Sheets trackers, specific
 
 1. **Run the script:**
    ```bash
-   python batch_download.py
+   python3 batch_download.py
    ```
 
 2. **Enter the Google Sheets URL** when prompted (or direct CSV URL)
@@ -50,7 +47,7 @@ The script automatically formats song titles according to these rules:
 
 - **Features**: `(feat. Artist)` → `(Feat. Artist)`
 - **Producers**: `(prod. Producer)` → Composer field
-- **Alternative Titles**: `Title (Alt)` → `Title / Alt`
+- **Alternative Titles**: `Title (Title 2)` → `Title / Title 2`
 - **Quality**: Low Quality → `(LQ)`
 - **Snippets**: Snippet → `(Snippet)`
 - **Cleanup**: Removes emojis, square brackets, extra spaces

@@ -1,3 +1,7 @@
 pandas
 requests
 mutagen 
+regex
+tqdm
+python-telegram-bot
+zipfile36 
