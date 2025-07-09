@@ -4,10 +4,10 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 
 ## Features
 
-- **Multiple Input Sources**: Support for both Google Sheets URLs and local CSV files
-- **Batch Era Processing**: Download all eras at once with parallel processing
+- **Multiple Input Sources**: Google Sheets URLs and local CSV files
+- **Configurable Parallel Downloads**: Adjustable simultaneous download threads (1-10)
 - **Automatic Metadata Embedding**: 
-  - Title formatting (removes grailed emojis, brackets, handles features)
+  - Title formatting (removes emojis, brackets, handles features)
   - Artist and producers extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
 
@@ -16,7 +16,7 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/00vqla/tracker-sheets-dl
-   cd batch-download-spreadsheet
+   cd tracker-sheets-dl
    ```
 
 2. **Install dependencies:**
@@ -26,10 +26,8 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 
 ## Usage
    ```bash
-   python3 batch_download.py
+   python3 runner.py
    ```
-
-
 
 ## Example Output
 
@@ -46,8 +44,6 @@ Embedded metadata into downloads/Love Sick/abc123.mp3
 ```
 
 ## Title Formatting Rules
-
-The script automatically formats song titles according to these rules:
 
 - **Features**: `(feat. Artist)` → `(Feat. Artist)`
 - **Producers**: `(prod. Producer)` → Composer field
@@ -71,7 +67,3 @@ The program expects a CSV/spreadsheet with these columns:
 - **Link(s)**: pillowcase.su download links
 - **Available Length**: Track type (Full, Snippet, OG File, etc.)
 - **Quality**: Audio quality (Low Quality, CD Quality, etc.)
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
