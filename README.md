@@ -1,4 +1,4 @@
-# music-sheets-dl
+# tracker-sheets-dl
 
 Python script to download and tag music from Google Sheets trackers (with pillowcase.su links)
 
@@ -19,7 +19,7 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/00vqla/music-sheets-dl
+   git clone https://github.com/00vqla/tracker-sheets-dl
    cd batch-download-spreadsheet
    ```
 
