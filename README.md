@@ -4,16 +4,12 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 
 ## Features
 
-- **Dynamic Era Selection**: Choose from available eras in the spreadsheet
+- **Multiple Input Sources**: Support for both Google Sheets URLs and local CSV files
+- **Batch Era Processing**: Download all eras at once with parallel processing
 - **Automatic Metadata Embedding**: 
   - Title formatting (removes grailed emojis, brackets, handles features)
   - Artist and producers extraction
   - Quality indicators (LQ for low quality, Snippet for snippets)
-
-## New in Latest Version
-
-- **Download All Eras at Once**: You can now select 'All Eras' to download every era in the tracker in one go.
-- **Parallel Era Downloads**: When downloading all eras, the script processes each era simultaneously for much faster batch downloads.
 
 ## Installation
 
@@ -29,28 +25,11 @@ Python script to download and tag music from Google Sheets trackers (with pillow
    ```
 
 ## Usage
-
-1. **Run the script:**
    ```bash
    python3 batch_download.py
    ```
 
-2. **Enter the Google Sheets URL** when prompted (or direct CSV URL)
 
-3. **Select an Era** from the available options
-
-4. **Wait for downloads** - files will be organized in `downloads/[Era Name]/`
-
-## Title Formatting Rules
-
-The script automatically formats song titles according to these rules:
-
-- **Features**: `(feat. Artist)` → `(Feat. Artist)`
-- **Producers**: `(prod. Producer)` → Composer field
-- **Alternative Titles**: `Title (Title 2)` → `Title / Title 2`
-- **Quality**: Low Quality → `(LQ)`
-- **Snippets**: Snippet → `(Snippet)`
-- **Cleanup**: Removes emojis, square brackets, extra spaces
 
 ## Example Output
 
@@ -66,19 +45,16 @@ Downloaded: https://api.pillowcase.su/api/download/abc123.mp3 -> downloads/Love 
 Embedded metadata into downloads/Love Sick/abc123.mp3
 ```
 
-## File Structure
+## Title Formatting Rules
 
-```
-batch-download-spreadsheet/
-├── batch_download.py          # Main script
-├── requirements.txt           # Python dependencies
-├── README.md                 # This file
-├── LICENSE                   # License file
-└── downloads/                # Downloaded files (created automatically)
-    ├── Love Sick/
-    ├── Heaven Or Hell/
-    └── JACKBOYS/
-```
+The script automatically formats song titles according to these rules:
+
+- **Features**: `(feat. Artist)` → `(Feat. Artist)`
+- **Producers**: `(prod. Producer)` → Composer field
+- **Alternative Titles**: `Title (Title 2)` → `Title / Title 2`
+- **Quality**: Low Quality → `(LQ)`
+- **Snippets**: Snippet → `(Snippet)`
+- **Cleanup**: Removes emojis, square brackets, extra spaces
 
 ## Requirements
 
