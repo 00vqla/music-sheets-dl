@@ -1,6 +1,6 @@
-# Batch Download Script for Music Trackers
+# music-sheets-dl
 
-A Python script that downloads music files from Google Sheets trackers, specifically designed for pillowcase.su hosted files. Automatically organizes downloads by era/album and embeds proper metadata.
+Python script to download and tag music from Google Sheets trackers (with pillowcase.su links)
 
 ## Features
 
