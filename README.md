@@ -19,7 +19,7 @@ Python script to download and tag music from Google Sheets trackers (with pillow
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/00vqla/spreadsheet-converter
+   git clone https://github.com/00vqla/music-sheets-dl
    cd batch-download-spreadsheet
    ```
 
@@ -99,14 +99,3 @@ The program expects a CSV/spreadsheet with these columns:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## Disclaimer
-
-This tool is for educational purposes. Please respect copyright and only download content you have permission to access. 
