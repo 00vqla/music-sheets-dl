@@ -29,20 +29,6 @@ Python script to download and tag music from Google Sheets trackers (with pillow
    python3 runner.py
    ```
 
-## Example Output
-
-```
-Available Eras:
-1. Love Sick
-2. Heaven Or Hell
-3. JACKBOYS
-
-Enter the number of the Era you want to download: 1
-Found 74 files to download for Era: Love Sick
-Downloaded: https://api.pillowcase.su/api/download/abc123.mp3 -> downloads/Love Sick/abc123.mp3
-Embedded metadata into downloads/Love Sick/abc123.mp3
-```
-
 ## Title Formatting Rules
 
 - **Features**: `(feat. Artist)` → `(Feat. Artist)`
@@ -66,4 +52,4 @@ The program expects a CSV/spreadsheet with these columns:
 - **Name**: Song title (with features, producers, etc.)
 - **Link(s)**: pillowcase.su download links
 - **Available Length**: Track type (Full, Snippet, OG File, etc.)
-- **Quality**: Audio quality (Low Quality, CD Quality, etc.)
+- **Quality**: Audio quality (LQ, CDQ, etc.)
