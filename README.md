@@ -1,6 +1,6 @@
 # tracker-sheets-dl
 
-Python script to download and tag music from Google Sheets trackers (with pillowcase.su links)
+A python tool to download and tag music from Google Sheets trackers (with pillowcase.su links)
 
 ## Features
 
